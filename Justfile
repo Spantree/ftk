@@ -143,6 +143,48 @@ vm-clean:
         echo "\nCancelled"; \
     fi
 
+# === Testing ===
+
+# Test ftk init on host (recommended)
+test-init *ARGS:
+    @echo "Testing ftk init on host (isolated /tmp directory)..."
+    deno run --allow-all --unstable-raw-imports scripts/test-init.ts {{ARGS}}
+
+# Test ftk init with sequential module
+test-init-sequential:
+    @echo "Testing sequential module setup..."
+    deno run --allow-all --unstable-raw-imports scripts/test-init.ts --modules sequential --no-prompt --keep
+
+# Launch interactive shell in test project
+test-shell *ARGS:
+    deno run --allow-all scripts/test-shell.ts {{ARGS}}
+
+# === Docker Testing ===
+
+# Build Docker test image
+test-docker-build:
+    @echo "Building Docker test image..."
+    docker compose -f tests/docker/docker-compose.yml build
+
+# Run interactive shell in Docker test container
+test-docker-shell:
+    @echo "Starting interactive shell in test container..."
+    docker compose -f tests/docker/docker-compose.yml run --rm ftk-test bash
+
+# Test ftk init in Docker container
+test-docker-init:
+    @echo "Testing ftk init in Docker container..."
+    docker compose -f tests/docker/docker-compose.yml run --rm ftk-test bash -c "\
+        ftk init --modules sequential --no-prompt && \
+        echo '\n=== Verifying MCP servers ===' && \
+        cdsp mcp list"
+
+# Clean up Docker containers and volumes
+test-docker-clean:
+    @echo "Cleaning up Docker test environment..."
+    docker compose -f tests/docker/docker-compose.yml down -v
+    @echo "✅ Docker test environment cleaned"
+
 # Install ftk in VM from local build
 vm-install-ftk VM_NAME="FTK-test": compile
     #!/usr/bin/env bash

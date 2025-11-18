@@ -3,12 +3,12 @@ title: MCP Server Validation Testing Infrastructure
 type: note
 permalink: plans/mcp-server-validation-testing-infrastructure
 tags:
-- testing
-- mcp-servers
-- integration-tests
-- tart-vm
-- claude-code
-- validation
+  - testing
+  - mcp-servers
+  - integration-tests
+  - tart-vm
+  - claude-code
+  - validation
 ---
 
 # MCP Server Validation Testing Infrastructure

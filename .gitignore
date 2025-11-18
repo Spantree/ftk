@@ -4,5 +4,10 @@ dist/
 
 # MCP secrets and configuration (local only)
 .env.mcp.secrets
+.env.ftk.secrets
 .mcp.json
 .claude/
+
+# Source code mirrors (local reference only)
+context/repos/*
+!context/repos/README.md

@@ -3,11 +3,11 @@ title: Tart VM Testing Infrastructure for FTK
 type: note
 permalink: plans/tart-vm-testing-infrastructure-for-ftk
 tags:
-- testing
-- tart
-- vm
-- automation
-- ftk
+  - testing
+  - tart
+  - vm
+  - automation
+  - ftk
 status: ✅ COMPLETED
 completed_at: 2025-10-18
 ---

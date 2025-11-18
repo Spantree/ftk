@@ -3,10 +3,10 @@ title: issue-6-pin-mcp-server-versions
 type: note
 permalink: plans/issue-6-pin-mcp-server-versions
 tags:
-- version-pinning
-- reproducibility
-- mcp-servers
-- issue-6
+  - version-pinning
+  - reproducibility
+  - mcp-servers
+  - issue-6
 kind: Plan
 created_at: 2024-10-16 00:00:00+00:00
 status: active

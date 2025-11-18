@@ -8,10 +8,10 @@ status: complete
 issue_permalink: https://github.com/Spantree/ftk/issues/1
 pr_permalink: https://github.com/Spantree/ftk/pull/10
 tags:
-- claude-code
-- installation
-- version-checking
-- issue-1
+  - claude-code
+  - installation
+  - version-checking
+  - issue-1
 ---
 
 # Issue 1: Claude Code Installation and Version Checks

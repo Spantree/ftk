@@ -98,18 +98,31 @@ All project documentation should be stored as Basic Memory notes, not regular ma
 **Folder Structure**:
 
 - `features/` - Feature documentation (not prefixed with issue numbers, may span multiple issues)
-- `plans/` - Issue-specific task management with status tracking (prefixed with `issue-N-`)
+- `plans/` - Task management and implementation plans (see Basic Memory Conventions below)
 - `guides/` - How-to documentation and usage instructions
 - `technologies/` - Technical documentation and architecture
 - `research/` - Cached research results
 - `meetings/` - Meeting notes
 
-**Best Practices**:
+**Basic Memory Protocol**:
 
-- Use `related-to: [[issue-N-description]]` to link features to implementing issues
-- Format all notes with Prettier after creation
-- Include observations and relations sections
-- Use kebab-case for note titles
+The `memory://` URI scheme refers to Basic Memory notes. This can appear:
+
+- In CLAUDE.md instructions: `memory://guides/plan-notes-for-complex-tasks`
+- In user prompts: `@memory://notes/mynote` or `Look at memory://plans/018-add-feature`
+
+**How to load `memory://` references:**
+
+- Use `read_note(identifier: "guides/plan-notes-for-complex-tasks")` for single notes
+- Use `build_context(url: "memory://guides/plan-notes-for-complex-tasks")` for notes with related context
+- Strip the `memory://` prefix when using `read_note` (it expects just `"folder/note"`)
+
+**Plan Note Naming** (see Basic Memory Conventions section for details):
+
+- Start without issue prefix: `"Add Feature Name"`
+- Add zero-padded prefix when assigned: `"#018: Add Feature"` (GitHub) or `"PRJ-042: Add Feature"` (Jira)
+- Filenames auto-generated from kebab-cased title
+- Other note types (features, guides, etc.) never use issue prefixes
 
 ## Architecture
 
@@ -143,35 +156,41 @@ The context directory feature allows MCP servers to store data:
 
 ### Basic Memory Conventions
 
-When using Basic Memory MCP for project notes and plans:
+**Quick Reference** (for plan notes only):
 
-**File Naming**:
+- **Titles**: `"Add Feature"` (no issue) or `"#018: Add Feature"` (GitHub) or `"PRJ-042: Add Feature"` (Jira)
+- **Issue Numbers**: Always zero-padded in titles/filenames (`#018`, `PRJ-042`)
+- **Filenames**: Auto-generated from kebab-cased title (`018-add-feature.md`, `prj-042-add-feature.md`)
+- **URLs**: Use tracker's actual format (NOT zero-padded: `/issues/18`, `/browse/PRJ-42`)
 
-- Use kebab-case for filenames (e.g., `claude-code-checks.md`, `mcp-authentication-setup.md`)
-- Titles in frontmatter should use Title Case (e.g., `title: "Issue 1: Add Claude Code Installation and Version Checks"`)
-
-**Frontmatter Requirements**:
+**Frontmatter Template**:
 
 ```yaml
 ---
-title: "Issue Title in Title Case"
-kind: Plan  # or Note, Guide, etc.
-created_at: 2025-10-16T15:00:00.000Z
-status: active  # draft, active, complete
-issue_permalink: https://github.com/org/repo/issues/1
-pr_permalink: https://github.com/org/repo/pull/10
-tags:
-  - kebab-case-tag
-  - another-tag
+title: "#018: Add Feature Name" # Zero-padded
+type: plan
+url: https://github.com/myorg/myrepo/issues/18 # NOT zero-padded
+permalink: plans/018-add-feature-name # Auto-generated
+tags: [issue-018, feature-area] # Zero-padded tag
 ---
 ```
 
-**Plan Structure**:
+**Essential Rules**:
 
+- Format all notes with Prettier after creation/editing
 - Use status emojis: 📌 BACKLOG, ⏳ IN PROGRESS, ✅ COMPLETED
-- Include observations and relations sections
-- Reference source files and implementations
 - Update status as work progresses
+- Include observations and design decisions
+
+**Working with Plan Notes - Required Reading:**
+
+Before creating or updating any plan note, you MUST:
+
+1. Load `memory://guides/plan-notes-for-complex-tasks`
+2. Follow the conventions exactly as documented
+3. Use Sequential MCP for complex analysis (see guide for workflow)
+
+Additional reference: `memory://guides/basic-memory-note-conventions`
 
 ## Distribution
 
