@@ -118,10 +118,11 @@ export interface InitOptions {
   skipValidation?: boolean;
   skipChecks?: boolean; // Skip Claude Code version check
   force?: boolean;
-  servers?: string[];
+  modules?: string[]; // Module IDs to install (overrides defaults)
+  include?: string[]; // Module IDs to add to defaults
+  exclude?: string[]; // Module IDs to remove from defaults
   contextDir?: string; // Context directory name
-  noPrompt?: boolean;
-  yes?: boolean; // Auto-confirm all prompts (alias for noPrompt)
+  yes?: boolean; // Non-interactive mode: auto-confirm all prompts
 }
 
 // Registry Metadata
