@@ -20,7 +20,7 @@ export class BasicMemoryServer extends BaseMCPServer {
     category: "core",
     packageName: "basic-memory",
     packageRegistry: "pypi",
-    homepage: "https://github.com/cyanheads/basic-memory",
+    homepage: "https://github.com/basicmachines-co/basic-memory",
   };
 
   protected override getDependencies(): DependencyRequirement[] {

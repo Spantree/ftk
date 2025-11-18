@@ -8,6 +8,7 @@
 
 import { Command } from "@cliffy/command";
 import { InitCommand } from "./commands/init.ts";
+import { proxyCommand } from "./commands/mcp/proxy.ts";
 import type { InitOptions } from "./types/index.ts";
 
 const VERSION = "0.2.0";
@@ -25,22 +26,46 @@ await new Command()
   .option("-f, --force", "Force re-initialization even if already configured")
   .option("--skip-validation", "Skip dependency validation checks")
   .option("--skip-checks", "Skip Claude Code installation and version checks")
-  .option("-s, --servers <servers:string[]>", "Specify servers to install (comma-separated)")
+  .option("-m, --modules <modules:string[]>", "Specify modules to install (comma-separated)")
+  .option("--include <modules:string[]>", "Add modules to default set (comma-separated)")
+  .option("--exclude <modules:string[]>", "Remove modules from default set (comma-separated)")
   .option("-c, --context-dir <dir:string>", "Context directory name (default: context)")
-  .option("--no-prompt", "Accept all defaults without prompting")
-  .option("-y, --yes", "Auto-confirm all prompts (same as --no-prompt)")
+  .option(
+    "-y, --yes",
+    "Non-interactive mode: install defaults, write placeholders for required env vars",
+  )
   .action(async (options) => {
     const initOptions: InitOptions = {
       force: options.force,
       skipValidation: options.skipValidation,
       skipChecks: options.skipChecks,
-      servers: options.servers,
+      modules: options.modules,
+      include: options.include,
+      exclude: options.exclude,
       contextDir: options.contextDir,
-      noPrompt: !options.prompt || options.yes, // --no-prompt or -y
       yes: options.yes,
     };
 
     await InitCommand.execute(initOptions);
+  })
+  // Install command
+  .command("install <module:string>", "Install an MCP module to current project")
+  .option("-y, --yes", "Non-interactive mode: use defaults")
+  .action(async (options, module: string) => {
+    const { InstallCommand } = await import("./commands/install.ts");
+    await InstallCommand.execute(module, { yes: options.yes });
+  })
+  // Remove command
+  .command("remove <module:string>", "Remove an MCP module from current project")
+  .action(async (_options, module: string) => {
+    const { RemoveCommand } = await import("./commands/remove.ts");
+    await RemoveCommand.execute(module);
+  })
+  // MCP command group
+  .command("mcp", "MCP server management commands")
+  .command("proxy <server-id:string>", "Proxy an MCP server with environment variable injection")
+  .action(async (_options, serverId: string) => {
+    await proxyCommand(serverId);
   })
   .reset() // Reset to root command before adding default action
   // Default action (show help)

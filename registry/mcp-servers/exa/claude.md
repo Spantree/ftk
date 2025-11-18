@@ -58,7 +58,7 @@ Exa Deep Research is expensive to run. **ALWAYS cache raw results to Basic Memor
 title: Research Topic Name
 type: research
 tool: exa_deep_researcher
-model: exa-research-pro  # or exa-research
+model: exa-research-pro # or exa-research
 task_id: "abc-123-xyz"
 date: 2025-01-15
 query_type: deep_research

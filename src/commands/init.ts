@@ -3,7 +3,7 @@
  * Interactive wizard for setting up MCP servers using lifecycle methods
  */
 
-import { basename } from "@std/path";
+import { basename, join } from "@std/path";
 import { ConfigManager } from "../core/config.ts";
 import { ServerRegistry } from "../core/registry.ts";
 import { SecretsManager } from "../core/secrets.ts";
@@ -11,6 +11,10 @@ import { ClaudeMdManager } from "../core/claude-md.ts";
 import { ContextDirManager } from "../core/context-dir.ts";
 import { Prompts } from "../ui/prompts.ts";
 import { DefaultLifecycleContext } from "../lib/lifecycle-context.ts";
+import { cacheInstructions, updateCachedTokens } from "../core/module-cache.ts";
+import { probeMCPServer } from "../core/mcp-probe.ts";
+import { estimateTokens } from "../utils/token-counter.ts";
+import { ensureMcpServersEnabled } from "../utils/claude-settings.ts";
 import {
   checkClaudeCodeInstallation,
   checkForUpgrade,
@@ -21,6 +25,9 @@ import {
   MIN_CLAUDE_VERSION,
 } from "../utils/claude-version.ts";
 import { getVersionChanges } from "../utils/changelog.ts";
+import { collectEnvVars } from "./helpers/env-collection.ts";
+import { mergeEnvFile } from "../utils/env-files.ts";
+import { getModule, hasConflict } from "../../modules/index.ts";
 import type { InitOptions, MCPServerEntry, MCPServerModule } from "../types/index.ts";
 
 export class InitCommand {
@@ -43,7 +50,7 @@ export class InitCommand {
 
           const installCmd = getInstallCommand(); // Synchronous now
 
-          if (installCmd && !options.noPrompt) {
+          if (installCmd && !options.yes) {
             // Offer automatic installation
             console.log("\nWould you like to install Claude Code now?");
             console.log(`Command to run: ${installCmd}\n`);
@@ -116,7 +123,7 @@ export class InitCommand {
 
           const upgradeCmd = await getUpgradeCommand();
 
-          if (upgradeCmd && !options.noPrompt && versionCheck.version) {
+          if (upgradeCmd && !options.yes && versionCheck.version) {
             // Fetch and show changelog
             const upgradeCheck = await checkForUpgrade(versionCheck.version);
 
@@ -233,7 +240,7 @@ export class InitCommand {
             console.log(getInstallationInstructions());
             console.log("\nSome features may not work correctly with older versions.");
 
-            if (!options.noPrompt) {
+            if (!options.yes) {
               const shouldContinue = await Prompts.confirm(
                 "Continue anyway?",
                 false,
@@ -258,7 +265,7 @@ export class InitCommand {
 
               const upgradeCmd = await getUpgradeCommand();
 
-              if (upgradeCmd && !options.noPrompt) {
+              if (upgradeCmd && !options.yes) {
                 console.log(`\nCommand to upgrade: ${upgradeCmd}`);
 
                 // Show changelog if available
@@ -316,7 +323,7 @@ export class InitCommand {
       // 2. Check if already initialized
       const isInitialized = await ConfigManager.isProjectInitialized();
       if (isInitialized && !options.force) {
-        if (options.noPrompt) {
+        if (options.yes) {
           Prompts.info("Project already initialized (use --force to override)");
           return;
         }
@@ -333,37 +340,88 @@ export class InitCommand {
       }
 
       // 3. Get available servers
-      const allServers = ServerRegistry.getAll();
-      const coreServers = ServerRegistry.getCore();
-      const optionalServers = ServerRegistry.getOptional();
+      const allServers = await ServerRegistry.getAll();
+      const coreServers = await ServerRegistry.getCore();
+      const optionalServers = await ServerRegistry.getOptional();
 
       Prompts.info(
         `Found ${coreServers.length} core servers and ${optionalServers.length} optional servers`,
       );
 
-      // 4. Server selection
+      // 4. Module selection
       let selectedServers: MCPServerModule[];
 
-      if (options.servers && options.servers.length > 0) {
-        // Use provided server IDs
-        selectedServers = options.servers
-          .map((id) => ServerRegistry.getById(id))
-          .filter((s): s is MCPServerModule => s !== undefined);
+      if (options.modules && options.modules.length > 0) {
+        // Use provided module IDs (overrides defaults)
+        const serverPromises = options.modules.map((id) => ServerRegistry.getById(id));
+        const resolvedServers = await Promise.all(serverPromises);
+        selectedServers = resolvedServers.filter(
+          (s): s is MCPServerModule => s !== undefined,
+        );
 
         if (selectedServers.length === 0) {
-          Prompts.warning("No valid servers selected. Exiting.");
+          Prompts.warning("No valid modules selected. Exiting.");
           return;
         }
-      } else if (options.noPrompt) {
-        // Use all core servers as default when --no-prompt is set
-        selectedServers = coreServers;
+      } else if (options.yes || options.include || options.exclude) {
+        // Start with core modules and apply include/exclude
+        const selectedIds = new Set(coreServers.map((s) => s.metadata.id));
+
+        // Apply excludes first
+        if (options.exclude && options.exclude.length > 0) {
+          for (const id of options.exclude) {
+            selectedIds.delete(id);
+          }
+        }
+
+        // Apply includes and handle conflicts
+        const autoExcluded: Array<{ included: string; excluded: string }> = [];
+        if (options.include && options.include.length > 0) {
+          for (const includeId of options.include) {
+            selectedIds.add(includeId);
+
+            // Check for hard conflicts with existing selected modules
+            const includeModule = await getModule(includeId);
+            if (includeModule) {
+              const conflictingIds = includeModule.metadata.conflicts?.hard || [];
+
+              for (const conflictId of conflictingIds) {
+                if (selectedIds.has(conflictId)) {
+                  // Auto-exclude the conflicting default module
+                  selectedIds.delete(conflictId);
+                  autoExcluded.push({
+                    included: includeModule.metadata.name,
+                    excluded: (await getModule(conflictId))?.metadata.name || conflictId,
+                  });
+                }
+              }
+            }
+          }
+        }
+
+        // Show auto-exclusion warnings
+        if (autoExcluded.length > 0) {
+          Prompts.warning("Auto-excluded conflicting defaults:");
+          for (const { included, excluded } of autoExcluded) {
+            console.log(`  • Excluded ${excluded} (conflicts with ${included})`);
+          }
+          console.log();
+        }
+
+        // Resolve server modules
+        const serverPromises = Array.from(selectedIds).map((id) => ServerRegistry.getById(id));
+        const resolvedServers = await Promise.all(serverPromises);
+        selectedServers = resolvedServers.filter(
+          (s): s is MCPServerModule => s !== undefined,
+        );
+
         Prompts.info(
-          `Installing core servers: ${coreServers.map((s) => s.metadata.name).join(", ")}`,
+          `Installing modules: ${selectedServers.map((s) => s.metadata.name).join(", ")}`,
         );
       } else {
         // Interactive selection
         const selectedIds = await Prompts.multiSelect(
-          "Select MCP servers to install:",
+          "Select MCP modules to install:",
           allServers.map((s) => ({
             id: s.metadata.id,
             name: s.metadata.name,
@@ -377,19 +435,92 @@ export class InitCommand {
           }>,
         );
 
-        selectedServers = selectedIds
-          .map((id) => ServerRegistry.getById(id))
-          .filter((s): s is MCPServerModule => s !== undefined);
+        const serverPromises = selectedIds.map((id) => ServerRegistry.getById(id));
+        const resolvedServers = await Promise.all(serverPromises);
+        selectedServers = resolvedServers.filter(
+          (s): s is MCPServerModule => s !== undefined,
+        );
       }
 
       if (selectedServers.length === 0) {
-        Prompts.warning("No servers selected. Exiting.");
+        Prompts.warning("No modules selected. Exiting.");
         return;
+      }
+
+      // 4.5. Check for conflicts between selected modules
+      const serverModules = await Promise.all(
+        selectedServers.map((s) => getModule(s.metadata.id)),
+      );
+      const validModules = serverModules.filter((m): m is NonNullable<typeof m> => m !== null);
+
+      // Collect conflicts to show warnings later
+      const hardConflicts: Array<[string, string]> = [];
+      const softConflicts: Array<[string, string]> = [];
+
+      for (let i = 0; i < validModules.length; i++) {
+        for (let j = i + 1; j < validModules.length; j++) {
+          const conflict = hasConflict(validModules[i], validModules[j]);
+
+          if (conflict.hard) {
+            hardConflicts.push([
+              validModules[i].metadata.name,
+              validModules[j].metadata.name,
+            ]);
+          } else if (conflict.soft) {
+            softConflicts.push([
+              validModules[i].metadata.name,
+              validModules[j].metadata.name,
+            ]);
+          }
+        }
+      }
+
+      // Handle hard conflicts
+      if (hardConflicts.length > 0) {
+        const explicitlyIncluded = options.include && options.include.length > 0;
+
+        if (explicitlyIncluded) {
+          // User explicitly asked for conflicting modules - warn but continue
+          Prompts.warning("Detected hard conflicts between modules:");
+          for (const [mod1, mod2] of hardConflicts) {
+            console.log(`  • ${mod1} ↔ ${mod2}`);
+          }
+          console.log(
+            "\nThese modules are mutually exclusive but will be installed because you explicitly requested them.",
+          );
+        } else {
+          // Auto-selected - block installation
+          Prompts.error("Hard conflicts detected:");
+          for (const [mod1, mod2] of hardConflicts) {
+            console.log(`  • ${mod1} ↔ ${mod2}`);
+          }
+          console.log(
+            "\nThese modules cannot be installed together. Use --exclude to remove one.",
+          );
+          return;
+        }
+      }
+
+      // Handle soft conflicts in interactive mode
+      if (softConflicts.length > 0 && !options.yes) {
+        Prompts.warning("Detected soft conflicts between modules:");
+        for (const [mod1, mod2] of softConflicts) {
+          console.log(`  • ${mod1} ↔ ${mod2}`);
+        }
+        console.log("\nThese modules have overlapping functionality.");
+
+        const proceed = await Prompts.confirm(
+          "Continue with all selected modules?",
+          false,
+        );
+        if (!proceed) {
+          return;
+        }
       }
 
       // 5. Get context directory name
       const contextDirName = options.contextDir ||
-        (options.noPrompt ? "context" : await Prompts.requestContextDirName());
+        (options.yes ? "context" : await Prompts.requestContextDirName());
 
       // 6. Create lifecycle context
       const ctx = new DefaultLifecycleContext();
@@ -397,6 +528,10 @@ export class InitCommand {
       // 7. Run lifecycle for each server
       const mcpConfig: Record<string, MCPServerEntry> = {};
       const installedServers: MCPServerModule[] = [];
+      const allNeedsUserInput: Array<{
+        moduleName: string;
+        vars: Array<{ name: string; description: string; secret: boolean }>;
+      }> = [];
 
       for (const server of selectedServers) {
         Prompts.info(`\nConfiguring ${server.metadata.name}...`);
@@ -418,7 +553,7 @@ export class InitCommand {
               }
             }
 
-            if (options.noPrompt) {
+            if (options.yes) {
               Prompts.info(`Skipping ${server.metadata.name} (missing dependencies)`);
               continue;
             }
@@ -466,9 +601,86 @@ export class InitCommand {
         }
 
         if (installResult.mcpConfig) {
-          mcpConfig[server.metadata.id] = installResult.mcpConfig;
+          // Get module for env vars and probing
+          const module = await ServerRegistry.getModuleById(server.metadata.id);
+
+          // Collect environment variables
+          if (module?.metadata.env_vars && module.metadata.env_vars.length > 0) {
+            const { secrets, nonSecrets, needsUserInput } = await collectEnvVars(
+              server.metadata.name,
+              module.metadata.env_vars,
+              options.yes,
+            );
+
+            // Write env vars to files
+            if (Object.keys(nonSecrets).length > 0) {
+              await mergeEnvFile(join(Deno.cwd(), ".env.ftk"), nonSecrets);
+            }
+            if (Object.keys(secrets).length > 0) {
+              await mergeEnvFile(join(Deno.cwd(), ".env.ftk.secrets"), secrets);
+            }
+
+            // Track vars that need user input
+            if (needsUserInput.length > 0) {
+              allNeedsUserInput.push({
+                moduleName: server.metadata.name,
+                vars: needsUserInput,
+              });
+            }
+          }
+
+          // Use ftk mcp proxy instead of direct command
+          mcpConfig[server.metadata.id] = {
+            command: "ftk",
+            args: ["mcp", "proxy", server.metadata.id],
+          };
+
           installedServers.push(server);
           Prompts.success(`${server.metadata.name} configured successfully`);
+
+          // Probe and cache token counts for new modules
+          if (module && module.metadata.probing?.enabled) {
+            try {
+              // Probe MCP server for exact token counts
+              const probeResult = await probeMCPServer(
+                module,
+                installResult.mcpConfig.env,
+              );
+
+              if (probeResult.success && probeResult.tools) {
+                // Calculate total token count from embedded instructions
+                // Resolve polymorphic instructions for accurate token counting
+                const selectedModuleIds = selectedServers.map((s) => s.metadata.id);
+                let totalInstructionsTokens = 0;
+                for (const { content } of module.instructions) {
+                  const resolvedContent = typeof content === "function"
+                    ? content({ installedModules: selectedModuleIds })
+                    : content;
+                  totalInstructionsTokens += estimateTokens(resolvedContent);
+                }
+
+                // Cache token counts and metadata
+                await updateCachedTokens(
+                  Deno.cwd(),
+                  server.metadata.id,
+                  probeResult.mcpTokens,
+                  totalInstructionsTokens,
+                  probeResult.tools,
+                  module.metadata.installation.version,
+                );
+
+                // Copy all instruction files to cache
+                // Pass selected module IDs for polymorphic instruction resolution
+                await cacheInstructions(Deno.cwd(), module, selectedModuleIds);
+              }
+            } catch (error) {
+              // Don't fail the whole installation if probing fails
+              console.warn(
+                `[init] Warning: Failed to probe ${server.metadata.id}:`,
+                error instanceof Error ? error.message : String(error),
+              );
+            }
+          }
         }
       }
 
@@ -482,6 +694,10 @@ export class InitCommand {
 
       // Save .mcp.json
       await ConfigManager.saveMCPConfig({ mcpServers: mcpConfig });
+
+      // Enable MCP servers in .claude/settings.json
+      const serverIds = installedServers.map((s) => s.metadata.id);
+      await ensureMcpServersEnabled(Deno.cwd(), serverIds);
 
       // Save .ftk/config.json with context directory
       const projectConfig = await ConfigManager.initProjectConfig(contextDirName);
@@ -548,6 +764,28 @@ export class InitCommand {
 
       if (contextDirName) {
         console.log(`  • Created ${contextDirName}/ directory`);
+      }
+
+      // Display post-install instructions for vars needing user input
+      if (allNeedsUserInput.length > 0) {
+        console.log("\n⚠️  Configuration Required\n");
+        console.log("The following environment variables need to be configured:\n");
+
+        for (const moduleInfo of allNeedsUserInput) {
+          console.log(`${moduleInfo.moduleName}:`);
+          for (const varInfo of moduleInfo.vars) {
+            const fileLocation = varInfo.secret ? ".env.ftk.secrets" : ".env.ftk";
+            const placeholder = `<your-${varInfo.name.toLowerCase().replace(/_/g, "-")}>`;
+            console.log(`  • ${varInfo.name} (${varInfo.secret ? "secret" : "non-secret"})`);
+            console.log(`    Description: ${varInfo.description}`);
+            console.log(`    File: ${fileLocation}`);
+            console.log(`    Replace: ${placeholder}\n`);
+          }
+        }
+
+        console.log(
+          "After updating these values, restart Claude Code to load the new configuration.",
+        );
       }
 
       console.log(`  • Updated CLAUDE.md`);

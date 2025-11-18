@@ -2,7 +2,7 @@
  * Lock File Utilities Tests
  */
 
-import { assertEquals, assertExists } from "jsr:@std/assert";
+import { assertEquals, assertExists } from "@std/assert";
 import { join } from "@std/path";
 import {
   getServerLock,

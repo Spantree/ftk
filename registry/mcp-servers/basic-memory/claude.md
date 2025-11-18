@@ -18,7 +18,7 @@
 ```
 features/         # Feature documentation (not prefixed with issue numbers, may span multiple issues)
 guides/           # How-to documentation and usage instructions
-issues/           # Work tracked in GitHub/Jira/etc (prefixed with NNN- when ticket assigned)
+plans/            # Work tracked in GitHub/Jira/etc (prefixed with NNN- when ticket assigned)
 notes/            # Project-specific documentation
 technologies/     # Technical documentation and architecture
 meetings/         # Meeting notes and transcripts (YYYY-MM-DDTHH-MM-SS_topic.md)
@@ -35,7 +35,7 @@ Document implemented features without issue number prefixes. Features may span m
 - related-to: [[issue-12-version-caching]]
 ```
 
-**Issue Files** (`issues/` folder):
+**Plan Files** (`plans/` folder):
 Multi-phase task tracking with status indicators and detailed work items. Prefix with ticket number (001-, 006-, etc.) when assigned from GitHub/Jira/etc:
 
 ```markdown
@@ -66,12 +66,12 @@ issue_permalink: https://github.com/org/repo/issues/NNN
 - [ ] Another upcoming task
 ```
 
-**Issue Management**:
+**Plan Management**:
 
 - Use Sequential (if available) to break down complex objectives into phases
 - Update status as work progresses (📌 BACKLOG → ⏳ IN PROGRESS → ✅ COMPLETED)
 - Edit notes to check off tasks `[x]` and add discovered work items
-- Issues track multi-session objectives, not single-session todos
+- Plans track multi-session objectives, not single-session todos
 - Prefix filename with ticket number (001-, 006-) when assigned from project management system
 
 **Required Metadata** (append to all notes):
@@ -94,7 +94,7 @@ issue_permalink: https://github.com/org/repo/issues/NNN
 
 1. Search existing notes before creating new ones
 2. Use `build_context` for gathering related notes
-3. Create issue files in `issues/` for multi-step work
+3. Create plan files in `plans/` for multi-step work
 4. Always include observations + relations sections
 5. Format with Prettier before writing
 
@@ -102,7 +102,7 @@ issue_permalink: https://github.com/org/repo/issues/NNN
 
 **Cooperation with Other MCPs**:
 
-- Sequential: Track complex multi-step processes in `issues/*.md` note
+- Sequential: Track complex multi-step processes in `plans/*.md` note
 - Exa: Conduct deep research, then document raw results in a `research/*.md` note
 - Context7: Capture key patterns from official docs in notes
 - Firecrawl: Store raw page content with source attribution in `sites/domain/path/*.md` files
