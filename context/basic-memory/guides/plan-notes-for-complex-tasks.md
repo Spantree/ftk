@@ -77,12 +77,13 @@ When using the Sequential MCP for complex problem-solving:
 
 ### Frontmatter
 
-**Without External Issue**:
+**Without External Issue** (Draft):
 
 ```yaml
 ---
 title: "Add Feature Name"
 type: plan
+status: Draft # Draft | Open | Closed
 tags:
   - feature-area
   - technology-stack
@@ -95,7 +96,11 @@ tags:
 ---
 title: "#018: Add Feature Name" # Zero-padded in title
 type: plan
+status: Open # Synced with GitHub issue state
+issue: 18 # GitHub issue number
 url: https://github.com/myorg/myrepo/issues/18 # NOT zero-padded
+tracker: github # Issue tracker type
+synced_at: 2025-11-17T20:30:00Z # Last sync timestamp
 permalink: plans/018-add-feature-name # Auto-generated
 tags:
   - issue-018 # Zero-padded tag
@@ -109,7 +114,11 @@ tags:
 ---
 title: "PRJ-042: Add Feature Name" # Zero-padded in title
 type: plan
+status: Open # Synced with Jira issue status
+issue: PRJ-42 # Jira issue key
 url: https://myorg.atlassian.net/browse/PRJ-42 # Jira's actual format
+tracker: jira # Issue tracker type
+synced_at: 2025-11-17T20:30:00Z # Last sync timestamp
 permalink: plans/prj-042-add-feature-name # Auto-generated
 tags:
   - issue-prj-042
@@ -164,6 +173,238 @@ Key insights, design decisions, tradeoffs made.
 
 Links to relevant documentation, RFCs, discussions.
 ```
+
+## Issue Tracker Integration
+
+Plan notes can be synced with external issue trackers (GitHub Issues or Jira) using their respective MCP servers.
+
+**Note**: The workflows below use natural language requests to Claude, which uses GitHub/Jira MCP tools and Basic Memory tools to perform the operations. These could be implemented as slash commands in the future (e.g., `/publish-plan`, `/import-issue`, `/sync-plan`).
+
+### Status Field
+
+All plan notes should include a `status` field in frontmatter:
+
+- **Draft**: Local-only plan, not yet published to issue tracker
+- **Open**: Published to issue tracker and actively tracked
+- **Closed**: Completed and closed in issue tracker
+
+**Status transitions**:
+
+```
+Draft → Open (when published to issue tracker)
+Open → Closed (when issue closed remotely and synced)
+```
+
+### Publishing Workflow (Local → Remote)
+
+When a plan is ready to share with the team:
+
+```bash
+# 1. Create plan locally with status: Draft
+User: "Create a plan note for adding feature X"
+# Claude creates plan with status: Draft
+
+# 2. Work on plan, refine approach
+
+# 3. When ready, publish to GitHub
+User: "Publish the feature X plan to GitHub"
+# Claude will:
+# - Read the plan note
+# - Create GitHub issue with plan title and body
+# - Update frontmatter with issue number, URL, tracker
+# - Change status from Draft to Open
+# - Optionally rename file to include issue number
+```
+
+**Implementation using GitHub MCP**:
+
+```typescript
+// Read local plan
+const plan = read_note("plans/add-feature-name");
+
+// Create GitHub issue
+const issue = mcp__github__create_issue({
+  owner: "myorg",
+  repo: "myrepo",
+  title: plan.title,
+  body: plan.content,
+  labels: plan.tags,
+});
+
+// Update plan frontmatter
+edit_note({
+  identifier: "plans/add-feature-name",
+  operation: "find_replace",
+  find_text: "status: Draft",
+  content: `status: Open
+issue: ${issue.number}
+url: ${issue.url}
+tracker: github
+synced_at: ${new Date().toISOString()}`,
+});
+
+// Optionally rename with issue number
+move_note({
+  identifier: "plans/add-feature-name",
+  destination_path: `plans/${issue.number}-add-feature-name.md`,
+});
+```
+
+### Import Workflow (Remote → Local)
+
+Pull existing issues into local plans:
+
+```bash
+# Import GitHub issue #456
+User: "Import GitHub issue #456 into a plan note"
+# or
+User: "Import https://github.com/myorg/myrepo/issues/456 as a plan"
+
+# Claude will:
+# - Fetch issue details from GitHub
+# - Map issue state to plan status (open → Open, closed → Closed)
+# - Create plan note with proper frontmatter
+# - Include issue body as plan content
+```
+
+**Implementation using GitHub MCP**:
+
+```typescript
+// Fetch issue from GitHub
+const issue = mcp__github__get_issue({
+  owner: "myorg",
+  repo: "myrepo",
+  issue_number: 456,
+});
+
+// Map GitHub state to plan status
+const status = issue.state === "open" ? "Open" : "Closed";
+
+// Create plan note
+write_note({
+  title: `#${String(issue.number).padStart(3, "0")}: ${issue.title}`,
+  folder: "plans",
+  type: "plan",
+  tags: ["imported", ...issue.labels.map((l) => l.name)],
+  content: `---
+title: "#${String(issue.number).padStart(3, "0")}: ${issue.title}"
+type: plan
+status: ${status}
+issue: ${issue.number}
+url: ${issue.html_url}
+tracker: github
+synced_at: ${new Date().toISOString()}
+---
+
+${issue.body}
+
+## GitHub Comments
+${issue.comments_data?.map((c) => `### ${c.user.login} - ${c.created_at}\n${c.body}`).join("\n\n")}
+`,
+});
+```
+
+### Sync Workflow (Bidirectional)
+
+Keep local plans in sync with remote issues:
+
+```bash
+# Sync specific plan from GitHub
+User: "Sync plan #456 with GitHub"
+
+# Claude will:
+# - Fetch latest issue state from GitHub
+# - Update local status if changed
+# - Merge comments/updates
+# - Handle conflicts if both changed
+```
+
+**Sync strategy**:
+
+- **Remote wins for status**: Issue state overrides local
+- **Merge tags**: Union of local tags and remote labels
+- **Content conflicts**: Show diff and prompt user
+
+**Implementation**:
+
+```typescript
+// Fetch remote issue
+const remote = mcp__github__get_issue({...});
+const local = read_note("plans/456-feature-name");
+
+// Check for status changes
+if (remote.state !== local.frontmatter.status.toLowerCase()) {
+  // Remote status wins
+  edit_note({
+    operation: "find_replace",
+    find_text: `status: ${local.frontmatter.status}`,
+    content: `status: ${remote.state === 'open' ? 'Open' : 'Closed'}`
+  });
+}
+
+// Check for content changes
+if (local_modified_since_sync && remote_modified_since_sync) {
+  // Conflict! Show diff to user
+  console.log("Conflict detected:");
+  console.log("Local changes:", local.content);
+  console.log("Remote changes:", remote.body);
+  console.log("Choose: [L]ocal, [R]emote, [M]erge manually?");
+}
+
+// Update sync timestamp
+edit_note({
+  find_text: `synced_at: ${local.frontmatter.synced_at}`,
+  content: `synced_at: ${new Date().toISOString()}`
+});
+```
+
+### Status Check
+
+Check sync status of all plans:
+
+```bash
+# Show which plans are out of sync
+User: "Check which plan notes are out of sync with GitHub"
+
+# Claude will output:
+# ✅ #018: Add Feature - in sync (last synced: 2 hours ago)
+# ⚠️  #042: Fix Bug - out of sync (remote closed, local still open)
+# ❌ #099: New Feature - conflict (both changed since last sync)
+```
+
+### Jira Integration
+
+Same workflow works with Jira MCP:
+
+```typescript
+// Jira uses different field names but same concept
+mcp__jira__create_issue({
+  project: "PRJ",
+  summary: plan.title,
+  description: plan.content,
+  issuetype: "Task",
+});
+
+// Jira keys are alphanumeric (PRJ-42)
+// Store in frontmatter as: issue: "PRJ-42"
+```
+
+### Best Practices for Issue Sync
+
+**DO**:
+
+- ✅ Start as Draft, publish when ready
+- ✅ Sync with remote regularly to stay current
+- ✅ Let remote status win (source of truth)
+- ✅ Add GitHub/Jira labels/tags locally for discoverability
+- ✅ Include issue URL in plan for quick access
+
+**DON'T**:
+
+- ❌ Manually edit issue number/URL fields
+- ❌ Change status without syncing
+- ❌ Forget to sync before continuing work
+- ❌ Publish incomplete Drafts
 
 ## Naming Conventions
 
@@ -380,12 +621,13 @@ Plan notes survive compaction because they're stored externally in Basic Memory.
 
 ## Examples
 
-### Example 1: Local Plan
+### Example 1: Local Plan (Draft)
 
 ```yaml
 ---
 title: "Add MCP Tool Filtering Proxy"
 type: plan
+status: Draft
 tags: ["mcp", "security", "proxy"]
 ---
 
@@ -404,7 +646,11 @@ tags: ["mcp", "security", "proxy"]
 ---
 title: "#018: Add Scoped Environment Variable Management"
 type: plan
-github_url: https://github.com/myorg/ftk/issues/18
+status: Open
+issue: 18
+url: https://github.com/myorg/ftk/issues/18
+tracker: github
+synced_at: 2025-11-17T20:30:00Z
 tags: ["issue-018", "environment-variables", "security", "mcp"]
 ---
 
@@ -423,7 +669,11 @@ tags: ["issue-018", "environment-variables", "security", "mcp"]
 ---
 title: "PRJ-042: Implement Custom Plugin System"
 type: plan
+status: Open
+issue: PRJ-42
 url: https://myorg.atlassian.net/browse/PRJ-42
+tracker: jira
+synced_at: 2025-11-17T20:30:00Z
 permalink: plans/prj-042-implement-custom-plugin-system
 tags: ["issue-prj-042", "plugins", "architecture", "extensibility"]
 ---
